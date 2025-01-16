@@ -203,30 +203,30 @@ def stop():
 
 
 # TSET
-speed = int(input('Enter speed:'))
-KEY = ();
-while KEY != 'F':
-    KEY = input('Enter Dirction:')
-    if KEY == 'SPEED':
-        speed = int(input('Enter speed:'))
-    if KEY == 'W':
-        go_forward(speed)
-    elif KEY == 'E':
-        Gorightup(speed)
-    elif KEY == 'D':
-        Goright(speed)
-    elif KEY == 'C':
-        Gorightdown(speed)
-    elif KEY == 'X':
-        Gobackward(speed)
-    elif KEY == 'Z':
-        Goleftdown(speed)
-    elif KEY == 'A':
-        Goleft(speed)
-    elif KEY == 'Q':
-        Goleftup(speed)
-    elif KEY == 'S':
-        stop()
+# speed = int(input('Enter speed:'))
+# KEY = ();
+# while KEY != 'F':
+#     KEY = input('Enter Dirction:')
+#     if KEY == 'SPEED':
+#         speed = int(input('Enter speed:'))
+#     if KEY == 'W':
+#         go_forward(speed)
+#     elif KEY == 'E':
+#         Gorightup(speed)
+#     elif KEY == 'D':
+#         Goright(speed)
+#     elif KEY == 'C':
+#         Gorightdown(speed)
+#     elif KEY == 'X':
+#         Gobackward(speed)
+#     elif KEY == 'Z':
+#         Goleftdown(speed)
+#     elif KEY == 'A':
+#         Goleft(speed)
+#     elif KEY == 'Q':
+#         Goleftup(speed)
+#     elif KEY == 'S':
+#         stop()
 
 # PWM stop
 LFPPIN.stop(0)
