@@ -91,7 +91,7 @@ def RBDir2():
 
 
 # change direction
-def Goforward(speed):
+def go_forward(speed):
     LFDir2()
     LFspeed(speed)
     RFDir1()
@@ -101,6 +101,8 @@ def Goforward(speed):
     RBDir1()
     RBspeed(speed)
 
+def turn_to_angle(angle):
+    pass
 
 def Goleft(speed):
     LFDir1()
@@ -193,7 +195,7 @@ def Gobackward(speed):
     RBspeed(speed)
 
 
-def Stop():
+def stop():
     LFspeed(0)
     RFspeed(0)
     LBspeed(0)
@@ -208,7 +210,7 @@ while KEY != 'F':
     if KEY == 'SPEED':
         speed = int(input('Enter speed:'))
     if KEY == 'W':
-        Goforward(speed)
+        go_forward(speed)
     elif KEY == 'E':
         Gorightup(speed)
     elif KEY == 'D':
@@ -224,7 +226,7 @@ while KEY != 'F':
     elif KEY == 'Q':
         Goleftup(speed)
     elif KEY == 'S':
-        Stop()
+        stop()
 
 # PWM stop
 LFPPIN.stop(0)
