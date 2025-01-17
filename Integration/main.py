@@ -8,9 +8,8 @@ from bless import BlessServer, BlessGATTCharacteristic, GATTCharacteristicProper
 from motor_control import stop, go_forward, turn_to_angle
 
 # Define the GPIO pins for the ultrasonic sensor
-TRIG_PIN = 4
-ECHO_PIN = 17
-
+TRIG_PIN = 7
+ECHO_PIN = 11
 # GPIO set up
 GPIO.setmode(GPIO.BOARD)
 GPIO.setwarnings(False)
@@ -28,6 +27,7 @@ distance_angle_tuple = (0.0, 0.0)
 # global distance_angle_packed
 distance_angle_packed = bytearray()
 state = "STOP"
+follow_switch = 0
 
 # set up logger for debug
 logging.basicConfig(level=logging.DEBUG)
@@ -48,17 +48,25 @@ format_stringbyte = 'B'
 # Object detection functions:
 def get_distance_ultrasonic():
     # Send a trigger signal
+    print(1)
     GPIO.output(TRIG_PIN, GPIO.HIGH)
+    print(2)
     time.sleep(0.0001)
+    print(3)
     GPIO.output(TRIG_PIN, GPIO.LOW)
+    print(4)
 
     # Wait for the echo response
     pulse_start = time.time()
+    print(5)
     pulse_end = time.time()
+    print(6)
     while GPIO.input(ECHO_PIN) == GPIO.LOW:
         pulse_start = time.time()
+        print(7)
     while GPIO.input(ECHO_PIN) == GPIO.HIGH:
         pulse_end = time.time()
+        print(8)
 
     # Calculate the distance in centimeters
     pulse_duration = pulse_end - pulse_start
@@ -70,7 +78,8 @@ def get_distance_ultrasonic():
 
 #### Red Zone/Stop Motor Function
 def red():
-    print("Distance below red threshold. Stopping motors.")
+    # print("Distance below red threshold. Stopping motors.")
+    stop()
     return 1
 
 
@@ -170,8 +179,8 @@ def get_distance_and_angle(d1, d2, d3):
 def read_request(characteristic: BlessGATTCharacteristic, **kwargs) -> bytearray:
     # logger.debug(f"Reading {characteristic.value}")
     if characteristic.uuid == distance_angle_char:
-        print(characteristic.uuid)
-        print(characteristic.value)
+        #print(characteristic.uuid)
+        #print(characteristic.value)
         # update values with new measurements and pack distance and angle data
         server.update_value(my_service_uuid, distance_angle_char)
     return characteristic.value
@@ -190,7 +199,7 @@ def write_request(characteristic: BlessGATTCharacteristic, value: Any, **kwargs)
                 return
             # Unpack the received value using the correct format string
             beacon1, distance1, beacon2, distance2, beacon3, distance3 = struct.unpack(format_stringtracking, value)
-            # logger.debug(f"Unpacked device ID: {beacon1}:{distance1}, {beacon2}:{distance2}, {beacon3}:{distance3}")
+            logger.debug(f"Unpacked device ID: {beacon1}:{distance1}, {beacon2}:{distance2}, {beacon3}:{distance3}")
 
             # get distance and angle reading from trilateration code
             (distance, angle) = get_distance_and_angle(distance1, distance2, distance3)
@@ -215,10 +224,12 @@ def write_request(characteristic: BlessGATTCharacteristic, value: Any, **kwargs)
                 stop()
             elif distance > 10.0:
                 # go at high speed
-                go_forward(50)
+                #go_forward(50)
+                pass
             else:
                 # go at low-normal speed
-                go_forward(20)
+                #go_forward(20)
+                pass
 
         if characteristic.uuid == distance_angle_char:
             # update values with new measurements and pack distance and angle data
@@ -226,9 +237,12 @@ def write_request(characteristic: BlessGATTCharacteristic, value: Any, **kwargs)
 
         if characteristic.uuid == follow_switch_char:  # follow flag
             # Unpack the received value using the correct format string
-            # print(value)
             followswitchvalue = struct.unpack(format_stringbyte, value)
-            # print(followswitchvalue)
+            print(followswitchvalue)
+            global follow_switch
+            follow_switch = followswitchvalue[0]
+            print(follow_switch)
+
 
     except Exception as e:
         logger.error(f"Error unpacking data: {e}")
@@ -297,12 +311,12 @@ async def run_ble(loop):
 # Object Detection Thread
 def run_object_detection():
     global state
-
     try:
         while True:
-            distance = get_distance_ultrasonic()
-            print(f"Distance: {distance:.2f} cm")
-
+            #print("here")
+            #distance = get_distance_ultrasonic()
+            #print(f"Distance: {distance:.2f} cm")
+            distance = 39
             if distance < REDDISTANCE_THRESHOLD:
                 state = red()
             elif distance > 600:
@@ -331,14 +345,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-# loop = asyncio.get_event_loop()
-# loop.create_task(run_ble(loop))
-# loop.run_forever()
-
-
-# After trigger event, you can update the value for testing purposes.
-# logger.debug("Updating characteristic")
-
-# server.get_characteristic(distance_angle_char)
-# server.update_value(my_service_uuid, distance_angle_char)
