@@ -8,26 +8,25 @@ from bless import BlessServer, BlessGATTCharacteristic, GATTCharacteristicProper
 from motor_control import stop, go_forward, turn_to_angle
 
 # Define the GPIO pins for the ultrasonic sensor
-TRIG_PIN = 7
-ECHO_PIN = 11
+TRIG_PIN = 11
+ECHO_PIN = 13
+
 # GPIO set up
 GPIO.setmode(GPIO.BOARD)
 GPIO.setwarnings(False)
+
 # Set up the ultrasonic sensor pins
 GPIO.setup(TRIG_PIN, GPIO.OUT)
 GPIO.setup(ECHO_PIN, GPIO.IN)
 
 # Define the distance threshold in cm (adjust as needed)
-REDDISTANCE_THRESHOLD = 60
+red_distance_threshold = 1
 
-# assign distance and angle GLOBAL variables
-angleglobal, distanceglobal = 0, 0
-# global distance_angle_tuple
-distance_angle_tuple = (0.0, 0.0)
-# global distance_angle_packed
-distance_angle_packed = bytearray()
+# Control system variables
 state = "STOP"
 follow_switch = 0
+ultrasonic_refresh = 1
+distance_avg1, distance_avg2, distance_avg3, counter = 0, 0, 0, 0
 
 # set up logger for debug
 logging.basicConfig(level=logging.DEBUG)
@@ -44,29 +43,37 @@ else:
 format_stringtracking = 'i 4x f i 4x f i 4x f'
 format_stringbyte = 'B'
 
+# BLE server characteristics id
+tracking_data_char = "51ff12bb-3ed8-46e5-b4f9-d64e2fec021b"
+follow_switch_char = "df0a2a78-c76b-4d4f-95cc-9e92c35c4507"
+distance_angle_char = "02abb070-9204-4beb-93f4-f9c826d57d0d"
+
 
 # Object detection functions:
 def get_distance_ultrasonic():
+
     # Send a trigger signal
-    print(1)
     GPIO.output(TRIG_PIN, GPIO.HIGH)
-    print(2)
     time.sleep(0.0001)
-    print(3)
     GPIO.output(TRIG_PIN, GPIO.LOW)
-    print(4)
 
     # Wait for the echo response
     pulse_start = time.time()
-    print(5)
     pulse_end = time.time()
-    print(6)
+    debug_start = time.time()
+
+    # Sometimes while waiting for echo response the program gets stuck in the loop, due to missing the response?
+    # If it gets stuck there for more than 1 second, break out of the loop
     while GPIO.input(ECHO_PIN) == GPIO.LOW:
         pulse_start = time.time()
-        print(7)
+        if time.time() - debug_start > 1:
+            break
+            print("escaped")
     while GPIO.input(ECHO_PIN) == GPIO.HIGH:
         pulse_end = time.time()
-        print(8)
+        if time.time() - debug_start > 1:
+            break
+            print("escaped")
 
     # Calculate the distance in centimeters
     pulse_duration = pulse_end - pulse_start
@@ -78,15 +85,15 @@ def get_distance_ultrasonic():
 
 #### Red Zone/Stop Motor Function
 def red():
-    # print("Distance below red threshold. Stopping motors.")
+    print("Distance below red threshold. Stopping motors.")
     stop()
-    return 1
+    return "STOP"
 
 
 #### Green/Normal Speed Fucntion
 def green():
-    print("Distance in green threshold. Normal motor speed.")
-    return 3
+    # print("Distance in green threshold. Normal motor speed.")
+    return "RUN"
 
 
 def out_of_range(state):
@@ -175,65 +182,74 @@ def get_distance_and_angle(d1, d2, d3):
     return result_distance, result_angle
 
 
+def control_system(distance1, distance2, distance3):
+    # get distance and angle reading from trilateration code
+    distance, angle = get_distance_and_angle(distance1, distance2, distance3)
+
+    # pack the distance and angle
+    distance_angle_packed = struct.pack('ff', *(distance, angle))
+
+    # instantiate characteristic to store processed values. these values are then read by the iPhone to display on App
+    characteristic1 = server.get_characteristic(distance_angle_char)
+    characteristic1.value = distance_angle_packed
+
+    # suitcase control
+
+    # turn_to_angle(angle)
+
+    if distance < 1.00:
+        # stop()
+        pass
+    elif distance > 10.0:
+        # go at high speed
+        # go_forward(50)
+        pass
+    else:
+        # go at low-normal speed
+        # go_forward(20)
+        pass
+
+
 # define read request function
 def read_request(characteristic: BlessGATTCharacteristic, **kwargs) -> bytearray:
-    # logger.debug(f"Reading {characteristic.value}")
-    if characteristic.uuid == distance_angle_char:
-        #print(characteristic.uuid)
-        #print(characteristic.value)
-        # update values with new measurements and pack distance and angle data
-        server.update_value(my_service_uuid, distance_angle_char)
     return characteristic.value
 
 
 # define write request function
 def write_request(characteristic: BlessGATTCharacteristic, value: Any, **kwargs):
-    current_value = value
     characteristic.value = value
 
     # assign unpacking based on characteristic UUID
     try:
         if characteristic.uuid == tracking_data_char:  # tracking data
-            if state == "STOP":
-                print("Obstacle detected. Stop")
-                return
+
             # Unpack the received value using the correct format string
             beacon1, distance1, beacon2, distance2, beacon3, distance3 = struct.unpack(format_stringtracking, value)
             logger.debug(f"Unpacked device ID: {beacon1}:{distance1}, {beacon2}:{distance2}, {beacon3}:{distance3}")
 
-            # get distance and angle reading from trilateration code
-            (distance, angle) = get_distance_and_angle(distance1, distance2, distance3)
-            global distanceglobal, angleglobal
-            distanceglobal = distance
-            angleglobal = angle
+            # data validation, distance between modules should always be small, otherwise the measurement is wrong
+            if abs(distance1 - distance2) > 1 or abs(distance1 - distance3) > 1 or abs(distance2 - distance3) > 1:
+                # bad data measurement, don't count this one
+                return
 
-            # change the distance and angle into a tuple
-            distance_angle_tuple = (distance, angle)
-            print(distance_angle_tuple)
-            # pack the distance and angle
-            distance_angle_packed = struct.pack('ff', *distance_angle_tuple)
+            # Store 20 distances in a global variable then average them to get a datapoint for control system
+            global distance_avg1, distance_avg2, distance_avg3, counter
+            distance_avg1 += distance1
+            distance_avg2 += distance2
+            distance_avg3 += distance3
+            counter += 1
 
-            # instantiate characteristic to store processed values
-            characteristic1 = server.get_characteristic(distance_angle_char)
-            # write new values to characteristic
-            write_request(characteristic1, distance_angle_packed)
-
-            turn_to_angle(angle)
-            # suitcase control
-            if distance < 1.00:
-                stop()
-            elif distance > 10.0:
-                # go at high speed
-                #go_forward(50)
-                pass
-            else:
-                # go at low-normal speed
-                #go_forward(20)
-                pass
-
-        if characteristic.uuid == distance_angle_char:
-            # update values with new measurements and pack distance and angle data
-            server.update_value(my_service_uuid, distance_angle_char)
+            if counter == 20:
+                try:
+                    # after 20 measurements are averaged, send data to control system to command suitcase
+                    print(distance_avg1 / counter, distance_avg2 / counter, distance_avg3 / counter)
+                    control_system(distance_avg1 / counter, distance_avg2 / counter, distance_avg3 / counter)
+                except:
+                    print("not sure")
+                finally:
+                    # ensure these are always reset when the counter reached 20
+                    counter = 0
+                    distance_avg1, distance_avg2, distance_avg3 = 0, 0, 0
 
         if characteristic.uuid == follow_switch_char:  # follow flag
             # Unpack the received value using the correct format string
@@ -242,7 +258,6 @@ def write_request(characteristic: BlessGATTCharacteristic, value: Any, **kwargs)
             global follow_switch
             follow_switch = followswitchvalue[0]
             print(follow_switch)
-
 
     except Exception as e:
         logger.error(f"Error unpacking data: {e}")
@@ -254,8 +269,8 @@ async def run_ble(loop):
     trigger.clear()
 
     # Instantiate the server
-    my_service_name = "WanderWheels"
     global server
+    my_service_name = "WanderWheels"
     server = BlessServer(name=my_service_name, loop=loop)
 
     # assign functions to server
@@ -263,20 +278,10 @@ async def run_ble(loop):
     server.write_request_func = write_request
 
     # Add WanderWheels Service
-    global my_service_uuid
     my_service_uuid = "A07498CA-AD5B-474E-940D-16F1FBE7E8CD"
     await server.add_new_service(my_service_uuid)
 
-    # characeristic UUID
-    global tracking_data_char
-    global distance_angle_char
-    global follow_switch_char
-    tracking_data_char = "51ff12bb-3ed8-46e5-b4f9-d64e2fec021b"
-    follow_switch_char = "df0a2a78-c76b-4d4f-95cc-9e92c35c4507"
-    distance_angle_char = "02abb070-9204-4beb-93f4-f9c826d57d0d"
-
     # asssign characteristic properties
-    global char_flags
     char_flags = (
             GATTCharacteristicProperties.read
             | GATTCharacteristicProperties.write
@@ -284,7 +289,6 @@ async def run_ble(loop):
             | GATTCharacteristicProperties.write_without_response
     )
 
-    global permissions
     # assign characteristic permissions
     permissions = GATTAttributePermissions.readable | GATTAttributePermissions.writeable
 
@@ -313,20 +317,21 @@ def run_object_detection():
     global state
     try:
         while True:
-            #print("here")
-            #distance = get_distance_ultrasonic()
-            #print(f"Distance: {distance:.2f} cm")
-            distance = 39
-            if distance < REDDISTANCE_THRESHOLD:
+            # print("here")
+            distance = get_distance_ultrasonic()
+            # print(f"Distance: {distance:.2f} cm")
+            # distance = 39
+            if distance < red_distance_threshold:
                 state = red()
             elif distance > 600:
                 out_of_range(state)
             else:
                 state = green()
-            time.sleep(0.5)
+            time.sleep(ultrasonic_refresh)
     except Exception as e:
         print(f"Error in object detection: {e}")
     finally:
+        print("FINALLY")
         GPIO.cleanup()
 
 
