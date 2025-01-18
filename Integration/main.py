@@ -27,6 +27,7 @@ state = "STOP"
 follow_switch = 0
 ultrasonic_refresh = 1
 distance_avg1, distance_avg2, distance_avg3, counter = 0, 0, 0, 0
+angle_previous, distance_previous = -1, -1
 
 # set up logger for debug
 logging.basicConfig(level=logging.DEBUG)
@@ -51,7 +52,6 @@ distance_angle_char = "02abb070-9204-4beb-93f4-f9c826d57d0d"
 
 # Object detection functions:
 def get_distance_ultrasonic():
-
     # Send a trigger signal
     GPIO.output(TRIG_PIN, GPIO.HIGH)
     time.sleep(0.0001)
@@ -85,7 +85,7 @@ def get_distance_ultrasonic():
 
 #### Red Zone/Stop Motor Function
 def red():
-    print("Distance below red threshold. Stopping motors.")
+    # print("Distance below red threshold. Stopping motors.")
     stop()
     return "STOP"
 
@@ -193,21 +193,46 @@ def control_system(distance1, distance2, distance3):
     characteristic1 = server.get_characteristic(distance_angle_char)
     characteristic1.value = distance_angle_packed
 
+    global angle_previous, distance_previous
     # suitcase control
+    # if ultrasound sensors detected obstacle, suitcase should always be stopped, otherwise continue as normal
+    if state == "STOP":
+        angle_previous, distance_previous = -1, -1
+        stop()
+        return
 
-    # turn_to_angle(angle)
+    if follow_switch == 0:
+        # user doesn't want to be followed, so stop
+        angle_previous, distance_previous = -1, -1
+        stop()
+        return
 
+    if angle_previous != -1 or distance_previous != -1:
+        # use previous value to do some checks
+        if abs(angle - angle_previous) < 30:
+            # angle has not changed much, so suitcase can continue with previous instructions
+            angle_previous = angle
+            distance_previous = distance
+            return
+    else:
+        angle_previous = angle
+        distance_previous = distance
+
+    # otherwise set new instructions for suitcase
+
+    # always stop before turning towards angle
+    stop()
+    turn_to_angle(angle)
+
+    # set speed based on distance. always move forward
     if distance < 1.00:
-        # stop()
-        pass
+        stop()
     elif distance > 10.0:
         # go at high speed
-        # go_forward(50)
-        pass
+        go_forward(20)
     else:
         # go at low-normal speed
-        # go_forward(20)
-        pass
+        go_forward(10)
 
 
 # define read request function
@@ -230,6 +255,7 @@ def write_request(characteristic: BlessGATTCharacteristic, value: Any, **kwargs)
             # data validation, distance between modules should always be small, otherwise the measurement is wrong
             if abs(distance1 - distance2) > 1 or abs(distance1 - distance3) > 1 or abs(distance2 - distance3) > 1:
                 # bad data measurement, don't count this one
+                # print("bad data")
                 return
 
             # Store 20 distances in a global variable then average them to get a datapoint for control system
@@ -294,14 +320,11 @@ async def run_ble(loop):
 
     # add characteristics to service
     await server.add_new_characteristic(
-        my_service_uuid, tracking_data_char, char_flags, bytearray(b'\x00'), permissions
-    )
+        my_service_uuid, tracking_data_char, char_flags, bytearray(b'\x00'), permissions)
     await server.add_new_characteristic(
-        my_service_uuid, distance_angle_char, char_flags, bytearray(b'\x00'), permissions
-    )
+        my_service_uuid, distance_angle_char, char_flags, bytearray(b'\x00'), permissions)
     await server.add_new_characteristic(
-        my_service_uuid, follow_switch_char, char_flags, bytearray(b'\x00'), permissions
-    )
+        my_service_uuid, follow_switch_char, char_flags, bytearray(b'\x00'), permissions)
 
     await server.start()
     logger.debug("Advertising")
