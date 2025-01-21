@@ -5,27 +5,42 @@ import RPi.GPIO as GPIO
 from scipy.optimize import least_squares
 from typing import Any, Union
 from bless import BlessServer, BlessGATTCharacteristic, GATTCharacteristicProperties, GATTAttributePermissions
-from motor_control import stop, go_forward, turn_to_angle
+from motor_control import stop
 
 # Define the GPIO pins for the ultrasonic sensor
-TRIG_PIN = 11
-ECHO_PIN = 13
+TRIG_PIN1 = 5
+ECHO_PIN1 = 3
+
+TRIG_PIN2 = 7
+ECHO_PIN2 = 11
+
+TRIG_PIN3 = 13
+ECHO_PIN3 = 15
+
+TRIG_PIN4 = 19
+ECHO_PIN4 = 21
 
 # GPIO set up
 GPIO.setmode(GPIO.BOARD)
 GPIO.setwarnings(False)
 
 # Set up the ultrasonic sensor pins
-GPIO.setup(TRIG_PIN, GPIO.OUT)
-GPIO.setup(ECHO_PIN, GPIO.IN)
+GPIO.setup(TRIG_PIN1, GPIO.OUT)
+GPIO.setup(ECHO_PIN1, GPIO.IN)
+GPIO.setup(TRIG_PIN2, GPIO.OUT)
+GPIO.setup(ECHO_PIN2, GPIO.IN)
+GPIO.setup(TRIG_PIN3, GPIO.OUT)
+GPIO.setup(ECHO_PIN3, GPIO.IN)
+GPIO.setup(TRIG_PIN4, GPIO.OUT)
+GPIO.setup(ECHO_PIN4, GPIO.IN)
 
 # Define the distance threshold in cm (adjust as needed)
 red_distance_threshold = 1
 
 # Control system variables
-state = "STOP"
+state = 0 # 0 = stop, 1 = go
 follow_switch = 0
-ultrasonic_refresh = 1
+ultrasonic_refresh = 5
 distance_avg1, distance_avg2, distance_avg3, counter = 0, 0, 0, 0
 angle_previous, distance_previous = -1, -1
 
@@ -48,10 +63,11 @@ format_stringbyte = 'B'
 tracking_data_char = "51ff12bb-3ed8-46e5-b4f9-d64e2fec021b"
 follow_switch_char = "df0a2a78-c76b-4d4f-95cc-9e92c35c4507"
 distance_angle_char = "02abb070-9204-4beb-93f4-f9c826d57d0d"
+object_detection_char = "fe1b910c-b8a9-4e69-87e9-ff0f6db33f5e"
 
 
 # Object detection functions:
-def get_distance_ultrasonic():
+def get_distance_ultrasonic(TRIG_PIN, ECHO_PIN):
     # Send a trigger signal
     GPIO.output(TRIG_PIN, GPIO.HIGH)
     time.sleep(0.0001)
@@ -85,21 +101,21 @@ def get_distance_ultrasonic():
 
 #### Red Zone/Stop Motor Function
 def red():
-    # print("Distance below red threshold. Stopping motors.")
+    print("Distance below red threshold. Stopping motors.")
     stop()
-    return "STOP"
+    return 0
 
 
 #### Green/Normal Speed Fucntion
 def green():
-    # print("Distance in green threshold. Normal motor speed.")
-    return "RUN"
+    print("Distance in green threshold. Normal motor speed.")
+    return 1
 
 
 def out_of_range(state):
-    if state == "STOP":
+    if state == 0:
         red()
-    elif state == "RUN":
+    elif state == 1:
         green()
     else:
         print("Distance out of range. No change.")
@@ -166,8 +182,8 @@ def get_distance_and_angle(d1, d2, d3):
         angle_degrees = calculate_angle(x4_new, y4_new)
         return result.x, distance, angle_degrees
 
-    coordinates_1, distance_1, angle_degrees_1 = find_point_least_squares((0, 0.25), (-0.2, 0), (0.2, 0), d1, d2, d3)
-    coordinates_2, distance_2, angle_degrees_2 = find_point((0, 0.25), (-0.2, 0), (0.2, 0), d1, d2, d3)
+    coordinates_1, distance_1, angle_degrees_1 = find_point_least_squares((0, 0.22), (-0.16, 0), (0.16, 0), d1, d2, d3)
+    coordinates_2, distance_2, angle_degrees_2 = find_point((0, 0.22), (-0.16, 0), (0.16, 0), d1, d2, d3)
 
     # by default, use the results of the first function
     result_distance, result_angle = distance_1, angle_degrees_1
@@ -193,46 +209,48 @@ def control_system(distance1, distance2, distance3):
     characteristic1 = server.get_characteristic(distance_angle_char)
     characteristic1.value = distance_angle_packed
 
-    global angle_previous, distance_previous
     # suitcase control
     # if ultrasound sensors detected obstacle, suitcase should always be stopped, otherwise continue as normal
-    if state == "STOP":
-        angle_previous, distance_previous = -1, -1
-        stop()
-        return
+    # if state == "STOP":
+    #    angle_previous, distance_previous = -1, -1
+    #    stop()
+    #    return
 
-    if follow_switch == 0:
-        # user doesn't want to be followed, so stop
-        angle_previous, distance_previous = -1, -1
-        stop()
-        return
+    # if follow_switch == 0:
+    # user doesn't want to be followed, so stop
+    #    angle_previous, distance_previous = -1, -1
+    #    stop()
+    #    return
 
-    if angle_previous != -1 or distance_previous != -1:
-        # use previous value to do some checks
-        if abs(angle - angle_previous) < 30:
-            # angle has not changed much, so suitcase can continue with previous instructions
-            angle_previous = angle
-            distance_previous = distance
-            return
-    else:
-        angle_previous = angle
-        distance_previous = distance
+    # if angle_previous != -1 or distance_previous != -1:
+    # use previous value to do some checks
+    #   if abs(angle-angle_previous) < 30:
+    # angle has not changed much, so suitcase can continue with previous instructions
+    #       angle_previous = angle
+    #       distance_previous = distance
+    #       return
 
-    # otherwise set new instructions for suitcase
 
-    # always stop before turning towards angle
-    stop()
-    turn_to_angle(angle)
+# else:
+#   angle_previous = angle
+#   distance_previous = distance
 
-    # set speed based on distance. always move forward
-    if distance < 1.00:
-        stop()
-    elif distance > 10.0:
-        # go at high speed
-        go_forward(20)
-    else:
-        # go at low-normal speed
-        go_forward(10)
+
+# otherwise set new instructions for suitcase
+
+# always stop before turning towards angle
+# stop()
+# turn_to_angle(angle)
+
+# set speed based on distance. always move forward
+# if distance < 1.00:
+#    stop()
+# elif distance > 10.0:
+# go at high speed
+#    go_forward(20)
+# else:
+# go at low-normal speed
+#    go_forward(10)
 
 
 # define read request function
@@ -298,7 +316,7 @@ async def run_ble(loop):
     global server
     my_service_name = "WanderWheels"
     server = BlessServer(name=my_service_name, loop=loop)
-
+    server.authentication = True
     # assign functions to server
     server.read_request_func = read_request
     server.write_request_func = write_request
@@ -325,6 +343,8 @@ async def run_ble(loop):
         my_service_uuid, distance_angle_char, char_flags, bytearray(b'\x00'), permissions)
     await server.add_new_characteristic(
         my_service_uuid, follow_switch_char, char_flags, bytearray(b'\x00'), permissions)
+    await server.add_new_characteristic(
+        my_service_uuid, object_detection_char, char_flags, bytearray(b'\x00'), permissions)
 
     await server.start()
     logger.debug("Advertising")
@@ -341,16 +361,24 @@ def run_object_detection():
     try:
         while True:
             # print("here")
-            distance = get_distance_ultrasonic()
-            # print(f"Distance: {distance:.2f} cm")
-            # distance = 39
+            distance1 = get_distance_ultrasonic(TRIG_PIN1, ECHO_PIN1)
+            distance2 = get_distance_ultrasonic(TRIG_PIN2, ECHO_PIN2)
+            distance3 = get_distance_ultrasonic(TRIG_PIN3, ECHO_PIN3)
+            distance4 = get_distance_ultrasonic(TRIG_PIN4, ECHO_PIN4)
+            print(f"Distance: {distance1:.2f} cm")
+            print(f"Distance: {distance2:.2f} cm")
+            print(f"Distance: {distance3:.2f} cm")
+            print(f"Distance: {distance4:.2f} cm")
+            distance = min(distance1, distance2, distance3, distance4)
             if distance < red_distance_threshold:
                 state = red()
-            elif distance > 600:
-                out_of_range(state)
-            else:
+            elif distance < 600:
                 state = green()
+            else:
+                out_of_range(state)
             time.sleep(ultrasonic_refresh)
+            object_detection = server.get_characteristic(object_detection_char)
+            object_detection.value = state
     except Exception as e:
         print(f"Error in object detection: {e}")
     finally:
